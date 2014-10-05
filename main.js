@@ -7,9 +7,23 @@ var listening = false;
 var preparing = false;
 var prepFramesLeft = 0;
 
+//Min Values during first 30 frames
+var min_E = Number.POSITIVE_INFINITY;
+var min_SFM = Number.POSITIVE_INFINITY;
+var min_F = Number.POSITIVE_INFINITY;
+
+//Primary threshold values
+var thresh_E = 40;
+var thresh_SFM = 5;
+var thresh_F = 185;
+
 var ampByteBuffer = new Uint8Array(2048);
 var ampFloatBuffer = new Float32Array(2048);
 var freqBuffer = new Uint8Array(1024);
+
+var containerElement = null;
+
+var inSilentFrame = null;
 
 //Draw the graphs
 var drawGraph = function(array){
@@ -71,7 +85,6 @@ var spectralFlatness = function(array){
 
   aMean = aMean / (array.length * 1.0);
   gMean = Math.exp(gMean / (array.length * 1.0));
-  console.log(aMean + "/" + gMean)
   return Math.abs(10 * (Math.log(gMean / aMean) / Math.LN10));
 
 }
@@ -81,6 +94,7 @@ window.onload = function(){
   navigator.getUserMedia({audio:true}, gotStream, logError);
 
   canvas = document.getElementById("canvas").getContext("2d");
+  containerElement = document.getElementById("canvas-container");
 }
 
 var gotStream = function(stream){
@@ -96,6 +110,19 @@ var logError = function(err){
   console.log(err);
 }
 
+var setGlobalSlience = function(isSilent){
+  if(isSilent != inSilentFrame){
+    inSilentFrame = isSilent;
+    if(isSilent){
+      containerElement.classList.add('silence');
+      containerElement.classList.remove('speech');
+    }else{
+      containerElement.classList.remove('silence');
+      containerElement.classList.add('speech');
+    }
+  }
+}
+
 var updateLoop = function(){
   canvas.clearRect(0,0,512, 512);
   analyser.getByteTimeDomainData(ampByteBuffer);
@@ -104,8 +131,38 @@ var updateLoop = function(){
 
   drawGraph(ampByteBuffer);
 
-  if(listening)
-    console.log(calculateEnergy(ampFloatBuffer) + " - " + spectralFlatness(freqBuffer));
+  if(listening){
+    var E = calculateEnergy(ampFloatBuffer);
+    var SFM = spectralFlatness(freqBuffer);
+    var F = highestFreqency(freqBuffer);
+
+    canvas.fillStyle = "#000";
+    canvas.fillText(E + "," + SFM + "," + F,128,128);
+    canvas.fillText(min_E + "," + min_SFM + "," + min_F,128,150);
+
+    if(preparing = true){
+      if(prepFramesLeft > 0){
+        min_E = Math.min(E,min_E);
+        min_F = Math.min(F,min_F);
+        min_SFM = Math.min(SFM,min_SFM);
+        prepFramesLeft--;
+      }else{
+        preparing = false;
+      }
+      
+    }
+
+    silent = true;
+    if((E - min_E) >= thresh_E )//* (Math.log(min_E) / Math.LN10))
+      silent = false;
+    else if((F - min_F) >= thresh_F)
+      silent = false;
+    else if((SFM - min_SFM) >= thresh_SFM)
+      silent = true;
+
+    setGlobalSlience(silent);
+  }
+
 
   if (!window.requestAnimationFrame)
     window.requestAnimationFrame = window.webkitRequestAnimationFrame;
@@ -115,4 +172,8 @@ var updateLoop = function(){
 
 var toggle = function(){
   listening = !listening;
+  if(listening = true){
+    preparing = true;
+    prepFramesLeft = 30;
+  }
 }
